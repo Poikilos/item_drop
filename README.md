@@ -20,7 +20,7 @@ developed by [PilzAdam](https://github.com/PilzAdam/item_drop).
   is `true` (true by default)
   * Multiple items are picked in a quick succession instead of all at once which
     is indicated by the pickup sound.
-  * It uses a node radius set in `item_drop.pickup_radius` (default 0.75),
+  * It uses a node radius set in `item_drop.pickup_radius` (default 0.4),
     if items are within this radius around the player's belt, they're picked.
   * If `item_drop.pickup_age` is something positive, items dropped by players
     are ignored for this time to avoid instantly picking up when dropping.

@@ -47,11 +47,11 @@ if legacy_setting_getbool("item_drop.enable_item_pickup",
 	local pickup_particle =
 		minetest.settings:get_bool("item_drop.pickup_particle", true)
 	local pickup_radius = legacy_setting_getnumber("item_drop.pickup_radius",
-		"item_pickup_radius", 0.75)
+		"item_pickup_radius", 0.4)  -- 1.425 is better if magnet_radius < this.
 	local magnet_radius = tonumber(
-		minetest.settings:get("item_drop.magnet_radius")) or -1
+		minetest.settings:get("item_drop.magnet_radius")) or 1.4
 	local magnet_time = tonumber(
-		minetest.settings:get("item_drop.magnet_time")) or 5.0
+		minetest.settings:get("item_drop.magnet_time")) or 0.0
 	local pickup_age = tonumber(
 		minetest.settings:get("item_drop.pickup_age")) or 0.5
 	local key_triggered = legacy_setting_getbool("item_drop.enable_pickup_key",
@@ -193,23 +193,31 @@ if legacy_setting_getbool("item_drop.enable_item_pickup",
 			if not ent then
 				return
 			end
-			local item = ItemStack(ent.itemstring)
-			if inv
-			and inv:room_for_item("main", item)
-			and item_drop.can_pickup(ent, player) then
-				collect_item(ent, object:get_pos(), player)
-			else
-				-- the acceleration will be reset by the object's on_step
-				object:set_velocity({x=0,y=0,z=0})
-				ent.is_magnet_item = false
-			end
+			-- Case below is commented so player does *not* collect it unless
+			--   it is in collect range!
+			--   -Poikilos 2024-01-07
+			-- local item = ItemStack(ent.itemstring)
+			-- if inv
+			-- and inv:room_for_item("main", item)
+			-- and item_drop.can_pickup(ent, player) then
+			-- 	collect_item(ent, object:get_pos(), player)
+			-- else
+			-- the acceleration will be reset by the object's on_step
+			ent.is_magnet_item = false
+			object:set_velocity({x=0,y=0,z=0})
+			object:set_physics_override({["gravity"] = 1.0})  -- let item fall
+			-- -Poikilos 2024-01-07
+			-- end
 		end
 
 		-- disable velocity and acceleration changes of items flying to players
 		minetest.after(0, function()
 			local ObjectRef
-			local blocked_methods = {"set_acceleration", "set_velocity",
-				"setacceleration", "setvelocity"}
+			-- local blocked_methods = {"set_acceleration", "set_velocity",
+			-- 	"setacceleration", "setvelocity"}
+			local blocked_methods = {}  -- empty (blocking no functions) is hard-coded way to allow both normal&custom physics of flying item
+			-- -Poikilos 2024-01-07
+
 			local itemdef = minetest.registered_entities["__builtin:item"]
 			local old_on_step = itemdef.on_step
 			local function do_nothing() end
@@ -310,13 +318,16 @@ if legacy_setting_getbool("item_drop.enable_item_pickup",
 					end
 					-- The item is not too far a way but near enough to be
 					-- magnetised, make it fly to the player
-					local vel = vector.multiply(vector.subtract(pos, pos2), 3)
-					vel.y = vel.y + 0.6
+					local vel = vector.multiply(vector.subtract(pos, pos2), 2)
+					-- ^ changed to 2 since 3 is too fast (cancels out distance-based difficulty curve)
+					-- vel.y = vel.y + 0.6
+					-- ^ Commented since a slight challenge is more fun
+					-- (having to get close to item adds to gameplay)
+					-- -Poikilos 2024-01-07
 					object:set_velocity(vel)
 					if not ent.is_magnet_item then
 						ent.object:set_acceleration({x=0, y=0, z=0})
 						ent.is_magnet_item = true
-
 						minetest.after(magnet_time, afterflight,
 							object, inv, player)
 					end

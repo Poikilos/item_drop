@@ -20,18 +20,18 @@ item_drop.pickup_sound_gain (Pickup sound gain) float 0.4
 item_drop.pickup_particle (Pickup particle) bool true
 
 #Player pickup radius, the maximum distance from which items can be collected
-item_drop.pickup_radius (Pickup radius) float 0.75
+item_drop.pickup_radius (Pickup radius) float .4
 
 #Magnet radius, items between pickup_radius and this begin flying to the player
 #Set it to -1 (or something else smaller than pickup_radius) to disable item
 #flying
-item_drop.magnet_radius (Magnet radius) float -1
+item_drop.magnet_radius (Magnet radius) float 1.4
 
-#Item flight duration, items flying for more than this time are added to the
-#player's inventory
-item_drop.magnet_time (Magnet time) float 5.0
+#Item flight duration (items flying for more than this time are allowed to fall).
+item_drop.magnet_time (Magnet time) float 0.0
 
 #Time delay in seconds after autopicking an item if it's dropped by a player
+#(if -1 then zero_velocity_mode is used which requires item_drop.magnet_radius = -1)
 item_drop.pickup_age (Pickup age) float 0.5
 
 #Enable manual item pickups by mouse
