@@ -28,11 +28,11 @@ item_drop.pickup_radius (Pickup radius) float .4
 item_drop.magnet_radius (Magnet radius) float 1.4
 
 #Item flight duration (items flying for more than this time are allowed to fall).
-item_drop.magnet_time (Magnet time) float 0.0
+item_drop.magnet_time (Magnet time) float 1.0
 
 #Time delay in seconds after autopicking an item if it's dropped by a player
 #(if -1 then zero_velocity_mode is used which requires item_drop.magnet_radius = -1)
-item_drop.pickup_age (Pickup age) float 0.5
+item_drop.pickup_age (Pickup age) float 2.5
 
 #Enable manual item pickups by mouse
 item_drop.mouse_pickup (Mouse pickup) bool true

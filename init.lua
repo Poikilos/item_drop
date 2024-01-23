@@ -1,5 +1,68 @@
 local load_time_start = minetest.get_us_time()
 
+-- Override the API to ensure the item isn't picked up instantly
+-- (based on workaround provided at
+-- <https://github.com/minetest/minetest/issues/13954>).
+local minetest_item_drop = minetest.item_drop
+function minetest.item_drop(itemstack, dropper, pos)  -- supposed to return leftover item
+	if dropper and dropper.get_player_name then
+		local meta = itemstack:get_meta()
+		meta:set_string("dropped_by", dropper:get_player_name())
+		-- ^ every drop should call core.item_drop (which sets ent.dropped_by)
+		--   but MultiCraft doesn't (ent.dropped_by isn't set), so use metadata instead.
+	end
+	return minetest_item_drop(itemstack, dropper, pos)  -- default behavior
+end
+
+
+function deserialize_extended(itemstring)
+	if not itemstring then
+		return nil
+	end
+	-- such as 'mobs:meat_raw 9 0 "\u0001dropped_by\u0002Player\u0003"'
+	local start = itemstring:find("\\u0001")
+	local sep = itemstring:find("\\u0002")
+	local ender = itemstring:find("\\u0003")
+	if start and sep and ender then
+		return {[itemstring:sub(start+6, sep-1)] = itemstring:sub(sep+6, ender-1)}
+	end
+	return nil
+end
+
+
+function ent_dropped_by(ent)
+	-- Check for builtin or extended dropped_by value:
+	-- * ent.dropped_by: is set by minetest.item_drop, but is nil in certain
+	--   cases (potentially a timing issue or related to overrides in
+	--   certain mods or versions of Minetest).
+	-- * extended itemstring: It only contains a "dropped_by" value if using
+	--   item_drop mod (since minetest.item_drop is overridden to use set_meta).
+	local dropped_by = nil
+	if not ent then
+		return nil
+	end
+	dropped_by = ent.dropped_by
+	if not dropped_by and ent and ent.itemstring then
+		local data = deserialize_extended(ent.itemstring)
+		if data then
+			dropped_by = data.dropped_by
+		end
+	end
+	return dropped_by
+end
+
+
+function obj_dropped_by(object)
+	-- Check for builtin or extended dropped_by value.
+	-- See ent_dropped_by for further information.
+	if object:is_player() then
+		return
+	end
+	local ent = object:get_luaentity()
+	return ent_dropped_by(ent)
+end
+
+
 -- Functions which can be overridden by mods
 item_drop = {
 	-- This function is executed before picking up an item or making it fly to
@@ -34,11 +97,13 @@ local function legacy_setting_getbool(name_new, name_old, default)
 	return v
 end
 
+
 local function legacy_setting_getnumber(name_new, name_old, default)
 	return tonumber(minetest.settings:get(name_new))
 		or tonumber(minetest.settings:get(name_old))
 		or default
 end
+
 
 if legacy_setting_getbool("item_drop.enable_item_pickup",
 		"enable_item_pickup", true) then
@@ -51,9 +116,9 @@ if legacy_setting_getbool("item_drop.enable_item_pickup",
 	local magnet_radius = tonumber(
 		minetest.settings:get("item_drop.magnet_radius")) or 1.4
 	local magnet_time = tonumber(
-		minetest.settings:get("item_drop.magnet_time")) or 0.0
+		minetest.settings:get("item_drop.magnet_time")) or 1.0
 	local pickup_age = tonumber(
-		minetest.settings:get("item_drop.pickup_age")) or 0.5
+		minetest.settings:get("item_drop.pickup_age")) or 2.5
 	local key_triggered = legacy_setting_getbool("item_drop.enable_pickup_key",
 		"enable_item_pickup_key", true)
 	local key_invert = minetest.settings:get_bool(
@@ -158,12 +223,18 @@ if legacy_setting_getbool("item_drop.enable_item_pickup",
 		function opt_get_ent(object)
 			if object:is_player()
 			or not vector.equals(object:get_velocity(), {x=0, y=0, z=0}) then
+				minetest.chat_send_player("singleplayer", "already moving")
+				minetest.chat_send_player("Player", "already moving")
 				return
 			end
 			local ent = object:get_luaentity()
 			if not ent
 			or ent.name ~= "__builtin:item"
 			or ent.itemstring == "" then
+				if ent then
+					minetest.chat_send_player("singleplayer", "ent.itemstring="..ent.itemstring)
+					minetest.chat_send_player("Player", "ent.itemstring="..ent.itemstring)
+				end
 				return
 			end
 			return ent
@@ -174,9 +245,10 @@ if legacy_setting_getbool("item_drop.enable_item_pickup",
 				return
 			end
 			local ent = object:get_luaentity()
+			local dropped_by = ent_dropped_by(ent)
 			if not ent
 			or ent.name ~= "__builtin:item"
-			or (ent.dropped_by and ent.age < pickup_age)
+			or (dropped_by and ent.age < pickup_age)
 			or ent.itemstring == "" then
 				return
 			end
@@ -300,10 +372,48 @@ if legacy_setting_getbool("item_drop.enable_item_pickup",
 		for i = 1,#objectlist do
 			local object = objectlist[i]
 			local ent = opt_get_ent(object)
+			local dropped = false
+			if player
+			and player.get_player_name
+			then
+				local dropped_by = nil
+				if ent then
+					-- for some reason ent.dropped_by and object.dropped_by are both nil
+					dropped_by = ent.dropped_by
+					if dropped_by then
+						minetest.chat_send_player(player:get_player_name(), type(dropped_by).." ent.dropped_by="..dropped_by)
+					else
+						minetest.chat_send_player(player:get_player_name(), type(dropped_by).." ent.dropped_by=nil")
+					end
+					dropped_by = ent_dropped_by(ent)
+					if dropped_by == player:get_player_name() then
+						dropped = true
+					end
+				else
+					local non_item_ent = object:get_luaentity()
+					if non_item_ent then
+						if non_item_ent.name then
+							if not non_item_ent.age or non_item_ent.age > pickup_age then
+								minetest.chat_send_player(player:get_player_name(), "moving, new, or non-item ent.name="..non_item_ent.name)
+								minetest.chat_send_player(player:get_player_name(), "object:get_velocity()="..minetest.serialize(object:get_velocity()))
+							end
+							-- else it is recently dropped, ignore until gets evaluated
+						end
+					end
+				end
+				if dropped_by then
+					minetest.chat_send_player(player:get_player_name(), "Dropped by "..dropped_by)
+				elseif ent then
+					minetest.chat_send_player(player:get_player_name(), "(dropped "..ent:get_staticdata()..")")
+				end
+			end
+
 			if ent
-			and item_drop.can_pickup(ent, player) then
+			and item_drop.can_pickup(ent, player)
+			and not dropped then
 				local item = ItemStack(ent.itemstring)
 				if inv:room_for_item("main", item) then
+					minetest.chat_send_player(player:get_player_name(), "Not dropped.")
 					local flying_item
 					local pos2
 					if magnet_mode then
@@ -320,7 +430,7 @@ if legacy_setting_getbool("item_drop.enable_item_pickup",
 					-- magnetised, make it fly to the player
 					local vel = vector.multiply(vector.subtract(pos, pos2), 2)
 					-- ^ changed to 2 since 3 is too fast (cancels out distance-based difficulty curve)
-					-- vel.y = vel.y + 0.6
+					vel.y = vel.y + 0.6
 					-- ^ Commented since a slight challenge is more fun
 					-- (having to get close to item adds to gameplay)
 					-- -Poikilos 2024-01-07
@@ -331,6 +441,8 @@ if legacy_setting_getbool("item_drop.enable_item_pickup",
 						minetest.after(magnet_time, afterflight,
 							object, inv, player)
 					end
+				else
+					minetest.chat_send_player(player:get_player_name(), "Not dropped (no room).")
 				end
 			end
 		end
@@ -395,6 +507,8 @@ and not minetest.settings:get_bool("creative_mode") then
 				z = z+1
 			end
 			vel.z = 1 / z
+			minetest.chat_send_player("singleplayer", "set_velocity "..minetest.serialize(vel))
+			minetest.chat_send_player("Player", "set_velocity "..minetest.serialize(vel))
 			obj:set_velocity(vel)
 		end
 	end
